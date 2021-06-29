@@ -1,0 +1,19 @@
+apiVersion: appmesh.k8s.aws/v1beta2
+kind: VirtualNode
+metadata:
+  name: colorapp
+  namespace: howto-k8s-cloudmap
+  labels:
+    node: blue
+spec:
+  podSelector:
+    matchLabels:
+      version: blue
+  listeners:
+    - portMapping:
+        port: 8080
+        protocol: http
+  serviceDiscovery:
+    awsCloudMap:
+      namespaceName: howto-k8s-cloudmap.pvt.aws.local
+      serviceName: colorapp

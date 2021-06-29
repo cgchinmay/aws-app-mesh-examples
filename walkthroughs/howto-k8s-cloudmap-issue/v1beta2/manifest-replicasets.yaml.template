@@ -1,0 +1,187 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${APP_NAMESPACE}
+  labels:
+    gateway: ingress-gw
+    mesh: ${MESH_NAME}
+    appmesh.k8s.aws/sidecarInjectorWebhook: enabled
+---
+apiVersion: appmesh.k8s.aws/v1beta2
+kind: Mesh
+metadata:
+  name: ${MESH_NAME}
+spec:
+  namespaceSelector:
+    matchLabels:
+      mesh: ${MESH_NAME}
+---
+apiVersion: appmesh.k8s.aws/v1beta2
+kind: VirtualGateway
+metadata:
+  name: ingress-gw
+  namespace: ${APP_NAMESPACE}
+spec:
+  namespaceSelector:
+    matchLabels:
+      gateway: ingress-gw
+  podSelector:
+    matchLabels:
+      app: ingress-gw
+  listeners:
+    - portMapping:
+        port: 8088
+        protocol: http
+---
+apiVersion: appmesh.k8s.aws/v1beta2
+kind: GatewayRoute
+metadata:
+  name: match-color
+  namespace: ${APP_NAMESPACE}
+spec:
+  httpRoute:
+    match:
+      prefix: "/color"
+    action:
+      target:
+        virtualService:
+          virtualServiceRef:
+            name: colorapp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-gw
+  namespace: ${APP_NAMESPACE}
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 8088
+      name: http
+  selector:
+    app: ingress-gw
+---
+apiVersion: appmesh.k8s.aws/v1beta2
+kind: VirtualNode
+metadata:
+  name: colorapp
+  namespace: ${APP_NAMESPACE}
+  labels:
+    node: blue
+spec:
+  podSelector:
+    matchLabels:
+      version: blue
+  listeners:
+    - portMapping:
+        port: 8080
+        protocol: http
+  serviceDiscovery:
+    awsCloudMap:
+      namespaceName: ${CLOUDMAP_NAMESPACE}
+      serviceName: colorapp
+---
+apiVersion: appmesh.k8s.aws/v1beta2
+kind: VirtualService
+metadata:
+  name: colorapp
+  namespace: ${APP_NAMESPACE}
+spec:
+  awsName: colorapp.${APP_NAMESPACE}.svc.cluster.local
+  provider:
+    virtualNode:
+      virtualNodeRef:
+        name: colorapp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: colorapp
+  namespace: ${APP_NAMESPACE}
+spec:
+  ports:
+    - protocol: TCP
+      port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingress-gw
+  namespace: ${APP_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ingress-gw
+  template:
+    metadata:
+      labels:
+        app: ingress-gw
+    spec:
+      containers:
+        - name: envoy
+          image: 840364872350.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/aws-appmesh-envoy
+          ports:
+            - containerPort: 8088
+---
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: blue
+  namespace: ${APP_NAMESPACE}
+spec:
+  # modify replicas according to your case
+  replicas: 13
+  selector:
+    matchLabels:
+      version: blue
+  template:
+    metadata:
+      labels:
+        version: blue
+    spec:
+      nodeSelector:
+         kubernetes.io/hostname: ip-192-168-56-68.us-west-2.compute.internal
+      containers:
+        - name: colorapp-blue
+          image: ${COLOR_APP_IMAGE}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: "SERVER_PORT"
+              value: "8080"
+            - name: "COLOR"
+              value: "blue"
+---
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: red
+  namespace: ${APP_NAMESPACE}
+spec:
+  # modify replicas according to your case
+  replicas: 11
+  selector:
+    matchLabels:
+      version: red
+  template:
+    metadata:
+      labels:
+        version: red
+    spec:
+      nodeSelector:
+         kubernetes.io/hostname: ip-192-168-56-68.us-west-2.compute.internal
+      containers:
+        - name: colorapp-red
+          image: ${COLOR_APP_IMAGE}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: "SERVER_PORT"
+              value: "8080"
+            - name: "COLOR"
+              value: "red"
